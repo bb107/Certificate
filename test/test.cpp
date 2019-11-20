@@ -1,5 +1,6 @@
 #include "../Certificate/Certificate.h"
 #include <cstdio>
+#pragma comment(lib,"crypt32.lib")
 
 bool TestSelfSignCert(Certificate &CA) {
 	return NT_SUCCESS(CA(

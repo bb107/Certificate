@@ -3,6 +3,7 @@
 #pragma comment(lib,"crypt32.lib")
 #pragma comment(lib,"Rpcrt4.lib")
 #pragma warning(disable:4996)
+#pragma warning(disable:4267)	//std::vector::size() size_t to DWORD
 
 Certificate::Certificate() {
 	RtlZeroMemory(this, sizeof(*this));
@@ -81,9 +82,7 @@ NTSTATUS Certificate::FromStoreW(LPCWSTR wszCommonName, HCERTSTORE hCertStore) {
 	this->m_pCertContext = context->cert;
 	if (!CryptAcquireCertificatePrivateKey(context->cert, 0, nullptr, &this->m_hCryptProv, &this->m_dwKeySpec, &this->m_CallFree) ||
 		!CryptGetUserKey(this->m_hCryptProv, this->m_dwKeySpec, &this->m_hCryptKey))return STATUS_NO_KEY;
-#ifndef _WIN64
-	*(DWORD*)(*(DWORD*)(*(DWORD*)(this->m_hCryptKey + 0x2C) ^ 0xE35A172C) + 8) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
-#endif
+	*(size_t*)(*(size_t*)(*(size_t*)(this->m_hCryptKey + OFFSET_1) ^ XOR_KEY) + OFFSET_2) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
 	return STATUS_SUCCESS;
 }
 
@@ -129,9 +128,7 @@ NTSTATUS Certificate::FromStoreW(LPCWSTR wszCommonName, LPCWSTR wszStoreName) {
 	this->m_pCertContext = context->cert;
 	if (!CryptAcquireCertificatePrivateKey(context->cert, 0, nullptr, &this->m_hCryptProv, &this->m_dwKeySpec, &this->m_CallFree) ||
 		!CryptGetUserKey(this->m_hCryptProv, this->m_dwKeySpec, &this->m_hCryptKey))return STATUS_NO_KEY;
-#ifndef _WIN64
-	* (DWORD*)(*(DWORD*)(*(DWORD*)(this->m_hCryptKey + 0x2C) ^ 0xE35A172C) + 8) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
-#endif
+	*(size_t*)(*(size_t*)(*(size_t*)(this->m_hCryptKey + OFFSET_1) ^ XOR_KEY) + OFFSET_2) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
 	return STATUS_SUCCESS;
 }
 
@@ -148,9 +145,7 @@ NTSTATUS Certificate::FromStoreNext() {
 	this->m_pCertContext = context->cert;
 	if (!CryptAcquireCertificatePrivateKey(context->cert, 0, nullptr, &this->m_hCryptProv, &this->m_dwKeySpec, &this->m_CallFree) ||
 		!CryptGetUserKey(this->m_hCryptProv, this->m_dwKeySpec, &this->m_hCryptKey))return STATUS_NO_KEY;
-#ifndef _WIN64
-	* (DWORD*)(*(DWORD*)(*(DWORD*)(this->m_hCryptKey + 0x2C) ^ 0xE35A172C) + 8) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
-#endif
+	*(size_t*)(*(size_t*)(*(size_t*)(this->m_hCryptKey + OFFSET_1) ^ XOR_KEY) + OFFSET_2) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
 	return STATUS_SUCCESS;
 }
 
@@ -447,11 +442,7 @@ NTSTATUS Certificate::FromPfxW(LPCWSTR wszFileName, LPCWSTR wszPasswd) {
 		if (!CryptAcquireContextW(&hProv, CryptKeyProvInfo->pwszContainerName, CryptKeyProvInfo->pwszProvName, PROV_RSA_FULL, 0))
 			throw STATUS_CRYPT_PROVIDER;
 		if (CryptGetUserKey(hProv, dwKeySpec, &hKey))
-#ifndef _WIN64
-			* (DWORD*)(*(DWORD*)(*(DWORD*)(hKey + 0x2C) ^ 0xE35A172C) + 8) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
-#else
-			;
-#endif
+			*(size_t*)(*(size_t*)(*(size_t*)(hKey + OFFSET_1) ^ XOR_KEY) + OFFSET_2) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
 	}
 	catch (NTSTATUS status) {
 		if (pPfx.pbData)delete[]pPfx.pbData;
@@ -680,7 +671,7 @@ NTSTATUS Certificate::operator()(LPCWSTR wszX500Name, Certificate* IssuerCertifi
 			for (DWORD i = 1, count = 1; count <= 32; count++, i <<= 1) {
 				if (dwCommonEnhancedKeyUsage & i)dwEnhUseCount++;
 			}
-			PCERT_ENHKEY_USAGE pCertEnhKeyUsage = reinterpret_cast<PCERT_ENHKEY_USAGE>(new char[sizeof(DWORD) + sizeof(LPSTR) * (dwEnhUseCount + 1)]);
+			PCERT_ENHKEY_USAGE pCertEnhKeyUsage = reinterpret_cast<PCERT_ENHKEY_USAGE>(new char[sizeof(DWORD) * 2 + sizeof(LPSTR) * (dwEnhUseCount + 1)]);
 			pCertEnhKeyUsage->cUsageIdentifier = dwEnhUseCount;
 			pCertEnhKeyUsage->rgpszUsageIdentifier = (LPSTR*)(((size_t)&pCertEnhKeyUsage->rgpszUsageIdentifier) + sizeof(LPSTR));
 			if (lpOtherEnhKeyUsage) {
@@ -916,9 +907,7 @@ Certificate& Certificate::operator=(Certificate& __right) {
 		this->m_hCertStore = CertOpenStore(
 			this->m_pStoreName ? CERT_STORE_PROV_SYSTEM : CERT_STORE_PROV_MEMORY, ENCODING_TYPE, 0, 0, this->m_pStoreName);
 	}
-#ifndef _WIN64
-	if (this->m_hCryptKey)*(DWORD*)(*(DWORD*)(*(DWORD*)(this->m_hCryptKey + 0x2C) ^ 0xE35A172C) + 8) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
-#endif
+	if (this->m_hCryptKey)*(size_t*)(*(size_t*)(*(size_t*)(this->m_hCryptKey + OFFSET_1) ^ XOR_KEY) + OFFSET_2) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
 	return *this;
 }
 
