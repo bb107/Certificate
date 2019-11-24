@@ -24,6 +24,9 @@
     <ClCompile Include="EnhKeyUsage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Exceptions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Certificate.h">

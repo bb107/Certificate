@@ -338,3 +338,5 @@ ASALocalRun/
 
 # BeatPulse healthcheck temp database
 healthchecksdb
+/Certificate/Certificate.lib
+/Certificate/Certificate.exp

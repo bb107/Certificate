@@ -1,5 +1,7 @@
 #pragma once
 #include <Windows.h>
+#include <exception>
+#include <iostream>
 #ifndef NT_SUCCESS
 #define NT_SUCCESS(x) ((x)>=0)
 #endif
@@ -29,7 +31,7 @@
 #define STATUS_DECODE_KEY_ID				(NTSTATUS)0x80000012	//CryptDecodeObject CertKeyIdentifier failed.
 #define STATUS_ENCODE_AUTH_KEY_ID			(NTSTATUS)0x80000013	//CryptEncodeObject CertAuthKeyId failed.
 #define STATUS_ISSUER_CERTIFICATE			(NTSTATUS)0x80000014	//Issuer Certificate is invalid.
-#define STATUS_SIGN_CERTIFICATE				(NTSTATUS)0x80000015	//Issuer CryptSignAndEncodeCertificate is invalid.
+#define STATUS_SIGN_CERTIFICATE				(NTSTATUS)0x80000015	//Issuer CryptSignAndEncodeCertificate is failed.
 #define STATUS_ADD_TO_STORE					(NTSTATUS)0x80000016	//CertAddEncodedCertificateToStore failed.
 #define STATUS_SET_CERT_PROP_KEY_ID			(NTSTATUS)0x80000017	//CertSetCertificateContextProperty CERT_KEY_PROV_INFO_PROP_ID failed.
 #define STATUS_CREATE_FILE					(NTSTATUS)0x80000018	//CreateFile failed.
@@ -46,3 +48,23 @@
 #define STATUS_FILE_TYPE					(NTSTATUS)0x80000025	//Invalid file type.
 #define STATUS_IMPORT_PFX					(NTSTATUS)0x80000026	//PFXImportCertStore failed.
 #define STATUS_ENUM_STORE					(NTSTATUS)0x80000027	//CertEnumCertificatesInStore failed.
+
+
+class __declspec(dllexport) CertificateException {
+private:
+	NTSTATUS m_status;
+public:
+	CertificateException();
+	CertificateException(CertificateException& _exception);
+	CertificateException(NTSTATUS status);
+
+	NTSTATUS status();
+
+	CertificateException& operator=(NTSTATUS status);
+
+	std::ostream& operator>>(std::ostream& cout);
+
+	virtual LPCSTR what() const throw();
+};
+
+std::ostream& operator<<(std::ostream& cout, CertificateException& _exception);

@@ -16,12 +16,12 @@ Certificate::Certificate(Certificate& _existed) {
 Certificate::Certificate(LPCSTR szCommonName, LPCSTR szStoreName) {
 	RtlZeroMemory(this, sizeof(*this));
 	NTSTATUS status = FromStoreA(szCommonName, szStoreName);
-	if (!NT_SUCCESS(status))throw status;
+	if (!NT_SUCCESS(status))throw new CertificateException(status);
 }
 Certificate::Certificate(LPCWSTR wszCommonName, LPCWSTR wszStoreName) {
 	RtlZeroMemory(this, sizeof(*this));
 	NTSTATUS status = FromStoreW(wszCommonName, wszStoreName);
-	if (!NT_SUCCESS(status))throw status;
+	if (!NT_SUCCESS(status))throw new CertificateException(status);
 }
 
 Certificate::Certificate(LPCSTR szX500Name, SignAlgorithm SigAlg, WORD wKeyBits, WORD wKeyType, BYTE bKeyUsage,
@@ -29,14 +29,14 @@ Certificate::Certificate(LPCSTR szX500Name, SignAlgorithm SigAlg, WORD wKeyBits,
 	RtlZeroMemory(this, sizeof(*this));
 	NTSTATUS status = this->operator()(szX500Name, nullptr, SignSha1RSA, wKeyBits,
 		wKeyType, bKeyUsage, TRUE, 0, lpExpireTime, dwCommonEnhancedKeyUsage, lpOtherEnhKeyUsage, nullptr);
-	if (!NT_SUCCESS(status))throw status;
+	if (!NT_SUCCESS(status))throw new CertificateException(status);
 }
 Certificate::Certificate(LPCWSTR wszX500Name, SignAlgorithm SigAlg,	WORD wKeyBits, WORD wKeyType, BYTE bKeyUsage,
 	PSYSTEMTIME lpExpireTime, DWORD dwCommonEnhancedKeyUsage, PADD_ENHKEY_SET lpOtherEnhKeyUsage) {
 	RtlZeroMemory(this, sizeof(*this));
 	NTSTATUS status = this->operator()(wszX500Name, nullptr, SignSha1RSA, wKeyBits,
 		wKeyType, bKeyUsage, TRUE, 0, lpExpireTime, dwCommonEnhancedKeyUsage, lpOtherEnhKeyUsage, nullptr);
-	if (!NT_SUCCESS(status))throw status;
+	if (!NT_SUCCESS(status))throw new CertificateException(status);
 }
 
 Certificate::~Certificate() {
@@ -519,7 +519,7 @@ NTSTATUS Certificate::ToPfxW(LPCWSTR wszFileName, LPCWSTR wszPasswd) const {
 	return STATUS_SUCCESS;
 }
 
-NTSTATUS Certificate::operator()(LPCSTR szX500Name, Certificate* IssuerCertificate, SignAlgorithm SigAlg,
+NTSTATUS Certificate::operator()(LPCSTR szX500Name, const Certificate* IssuerCertificate, SignAlgorithm SigAlg,
 	WORD wKeyBits, WORD wKeyType, BYTE bKeyUsage, BYTE bIsCA, WORD wPathConstraint,
 	PSYSTEMTIME lpExpireTime, DWORD dwCommonEnhancedKeyUsage, PADD_ENHKEY_SET lpOtherEnhKeyUsage, PCERT_EXTENSIONS lpOtherExtensions) {
 	size_t szX500NameLen = strlen(szX500Name) + 1;
@@ -530,7 +530,7 @@ NTSTATUS Certificate::operator()(LPCSTR szX500Name, Certificate* IssuerCertifica
 	delete[]wszX500Name;
 	return success;
 }
-NTSTATUS Certificate::operator()(LPCWSTR wszX500Name, Certificate* IssuerCertificate, SignAlgorithm SigAlg,
+NTSTATUS Certificate::operator()(LPCWSTR wszX500Name, const Certificate* IssuerCertificate, SignAlgorithm SigAlg,
 	WORD wKeyBits, WORD wKeyType, BYTE bKeyUsage, BYTE bIsCA, WORD wPathConstraint,
 	PSYSTEMTIME lpExpireTime, DWORD dwCommonEnhancedKeyUsage, PADD_ENHKEY_SET lpOtherEnhKeyUsage, PCERT_EXTENSIONS lpOtherExtensions) {
 	//Check if Issuer Certificate is invalid
@@ -892,10 +892,31 @@ NTSTATUS Certificate::operator()(LPCWSTR wszX500Name, Certificate* IssuerCertifi
 	return STATUS_SUCCESS;
 }
 
+Certificate* Certificate::IssueCertificate(LPCSTR szX500Name, SignAlgorithm SigAlg, WORD wKeyBits,
+	WORD wKeyType, BYTE bKeyUsage, BYTE bIsCA, WORD wPathConstraint, PSYSTEMTIME lpExpireTime,
+	DWORD dwCommonEnhancedKeyUsage, PADD_ENHKEY_SET lpOtherEnhKeyUsage, PCERT_EXTENSIONS lpOtherExtensions) const {
+	Certificate* subject = new Certificate;
+	if (NT_SUCCESS((*subject)(szX500Name, this, SigAlg, wKeyBits, wKeyType, bKeyUsage,
+		bIsCA, wPathConstraint, lpExpireTime, dwCommonEnhancedKeyUsage,
+		lpOtherEnhKeyUsage, lpOtherExtensions)))return subject;
+	delete subject;
+	return nullptr;
+}
+Certificate* Certificate::IssueCertificate(LPCWSTR wszX500Name, SignAlgorithm SigAlg, WORD wKeyBits,
+	WORD wKeyType, BYTE bKeyUsage, BYTE bIsCA, WORD wPathConstraint, PSYSTEMTIME lpExpireTime,
+	DWORD dwCommonEnhancedKeyUsage, PADD_ENHKEY_SET lpOtherEnhKeyUsage, PCERT_EXTENSIONS lpOtherExtensions) const {
+	Certificate* subject = new Certificate;
+	if (NT_SUCCESS((*subject)(wszX500Name, this, SigAlg, wKeyBits, wKeyType, bKeyUsage,
+		bIsCA, wPathConstraint, lpExpireTime, dwCommonEnhancedKeyUsage,
+		lpOtherEnhKeyUsage, lpOtherExtensions)))return subject;
+	delete subject;
+	return nullptr;
+}
+
 Certificate& Certificate::operator=(Certificate& __right) {
 	if (__right.m_pCertContext) {
 		this->m_pCertContext = CertDuplicateCertificateContext(__right.m_pCertContext);
-		if (!this->m_pCertContext)throw STATUS_INVALID_CERTIFICATE_CONTEXT;
+		if (!this->m_pCertContext)throw new CertificateException(STATUS_INVALID_CERTIFICATE_CONTEXT);
 	}
 	if (__right.m_hCryptProv) {
 		CryptAcquireCertificatePrivateKey(this->m_pCertContext, 0, nullptr, &this->m_hCryptProv, &this->m_dwKeySpec, &m_CallFree);

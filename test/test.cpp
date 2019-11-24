@@ -61,7 +61,13 @@ int main() {
 		TestSavePfx(Subject) ? "OK" : "FAIL");
 	CA.DestroyKeyAndDeleteKeySet();
 	Subject.DestroyKeyAndDeleteKeySet();
+	try {
+		Certificate CA(L"abc", L"def");
+	}
+	catch (CertificateException* status) {
+		(*status) >> std::cout << "Error Exit" << std::endl;
+		return status->status();
+	}
 	system("pause");
 	return 0;
 }
-

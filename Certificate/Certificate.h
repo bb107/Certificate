@@ -136,14 +136,22 @@ public:
 	//NTSTATUS operator>>(HCERTSTORE hCertStore)const;
 
 	//(Re-)create a self-signed certificate or apply for a certificate
-	NTSTATUS operator()(LPCSTR szX500Name, Certificate* IssuerCertificate = nullptr, SignAlgorithm SigAlg = SignSha1RSA,
+	NTSTATUS operator()(LPCSTR szX500Name, const Certificate* IssuerCertificate = nullptr, SignAlgorithm SigAlg = SignSha1RSA,
 		WORD wKeyBits = 1024, WORD wKeyType = AT_SIGNATURE, BYTE bKeyUsage = ALL_KEY_USAGE, BYTE bIsCA = FALSE, WORD wPathConstraint = 0,
 		PSYSTEMTIME lpExpireTime = nullptr, DWORD dwCommonEnhancedKeyUsage = 0, PADD_ENHKEY_SET lpOtherEnhKeyUsage = nullptr,
 		PCERT_EXTENSIONS lpOtherExtensions = nullptr);
-	NTSTATUS operator()(LPCWSTR wszX500Name, Certificate* IssuerCertificate = nullptr, SignAlgorithm SigAlg = SignSha1RSA,
+	NTSTATUS operator()(LPCWSTR wszX500Name, const Certificate* IssuerCertificate = nullptr, SignAlgorithm SigAlg = SignSha1RSA,
 		WORD wKeyBits = 1024, WORD wKeyType = AT_SIGNATURE, BYTE bKeyUsage = ALL_KEY_USAGE, BYTE bIsCA = FALSE, WORD wPathConstraint = 0,
 		PSYSTEMTIME lpExpireTime = nullptr, DWORD dwCommonEnhancedKeyUsage = 0, PADD_ENHKEY_SET lpOtherEnhKeyUsage = nullptr,
 		PCERT_EXTENSIONS lpOtherExtensions = nullptr);
+
+	//Issue a certificate
+	Certificate* IssueCertificate(LPCSTR szX500Name, SignAlgorithm SigAlg = SignSha1RSA, WORD wKeyBits = 1024, WORD wKeyType = AT_SIGNATURE,
+		BYTE bKeyUsage = ALL_KEY_USAGE, BYTE bIsCA = FALSE, WORD wPathConstraint = 0, PSYSTEMTIME lpExpireTime = nullptr,
+		DWORD dwCommonEnhancedKeyUsage = 0, PADD_ENHKEY_SET lpOtherEnhKeyUsage = nullptr, PCERT_EXTENSIONS lpOtherExtensions = nullptr)const;
+	Certificate* IssueCertificate(LPCWSTR wszX500Name, SignAlgorithm SigAlg = SignSha1RSA, WORD wKeyBits = 1024, WORD wKeyType = AT_SIGNATURE,
+		BYTE bKeyUsage = ALL_KEY_USAGE, BYTE bIsCA = FALSE, WORD wPathConstraint = 0, PSYSTEMTIME lpExpireTime = nullptr,
+		DWORD dwCommonEnhancedKeyUsage = 0, PADD_ENHKEY_SET lpOtherEnhKeyUsage = nullptr, PCERT_EXTENSIONS lpOtherExtensions = nullptr)const;
 
 	//Assignment operator
 	Certificate& operator=(Certificate& __right);
