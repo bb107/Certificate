@@ -1,0 +1,7 @@
+LIBRARY Certificate
+
+EXPORTS
+
+OpenX509Certificate
+CloseX509Certificate
+CreateX509Certificate

@@ -1,73 +1,150 @@
-#include "../Certificate/Certificate.h"
+#include "../Certificate/cert.h"
 #include <cstdio>
-#pragma comment(lib,"crypt32.lib")
+#pragma warning(disable:4996)
 
-bool TestSelfSignCert(Certificate &CA) {
-	return NT_SUCCESS(CA(
-		L"CN=TestSelfSign CA",		//Subject Common Name
-		nullptr,					//Issuer's Certificate (nullptr is self-sign)
-		SignSha1RSA,				//Signature Algorithm
-		2048,						//RSA Bits
-		AT_SIGNATURE,				//Key Type
-		ALL_KEY_USAGE,				//Key Usage
-		TRUE,						//Is CA
-		0,							//Path Constraint (0 is no Constraint)
-		nullptr,					//Expire Time (nullptr add 50 years)
-		ALL_KEY_ENHANCED_USAGE,		//Common Key Enhanced Usage
-		nullptr,					//Other Enhanced Key Usage
-		nullptr));					//Other Certificate Extensions
+PX509CERTIFICATE CreateSelfSignedCert(LPBYTE* cer, LPDWORD len) {
+	KEY_INFO ki{};
+	ki.RSAKeyLength = 2048;
+	ki.SignatureAlgorithm = SIGNATURE_ALGORITHM::sha256RSA;
+
+	BASIC_CONSTRAINT bc{};
+	bc.Authority = TRUE;
+	bc.MaxPathHeight = -1;
+
+	KEY_USAGE_RESTRICTION kur{};
+	kur.KeyUsage.DigitalSignature = TRUE;
+	kur.KeyUsage.KeyAgreement = TRUE;
+	kur.KeyUsage.KeyCertSign = TRUE;
+	kur.SigningAuthority.Commercial = TRUE;
+
+	BYTE buffer[sizeof(EKU_LIST) + sizeof(LPCSTR) * 2];
+	PEKU_LIST el = (PEKU_LIST)&buffer[0];
+	el->EkuCount = 2;
+	el->Ekus[0] = szOID_PKIX_KP_CODE_SIGNING;
+	el->Ekus[1] = szOID_PKIX_KP_SERVER_AUTH;
+
+
+	PX509CERTIFICATE cert = nullptr;
+
+	CreateX509Certificate(
+		&cert,
+		cer,
+		len,
+		nullptr,
+		"CN=root test",
+		&ki,
+		nullptr,
+		nullptr,
+		nullptr,
+		&bc,
+		&kur,
+		L"https://127.0.0.1",
+		nullptr,
+		el,
+		nullptr
+	);
+
+	return cert;
 }
 
-bool TestIssuingCertificate(Certificate* Issuer, Certificate& Subject) {
-	return NT_SUCCESS(Subject(L"CN=Test Subject", Issuer));
+PX509CERTIFICATE CreateSubjectCert(PX509CERTIFICATE issuer, LPBYTE* cer, LPDWORD len) {
+	KEY_INFO ki{};
+	ki.RSAKeyLength = 2048;
+	ki.SignatureAlgorithm = SIGNATURE_ALGORITHM::sha256RSA;
+
+	BASIC_CONSTRAINT bc{};
+	bc.End = TRUE;
+	bc.MaxPathHeight = -1;
+
+	KEY_USAGE_RESTRICTION kur{};
+	kur.KeyUsage.DigitalSignature = TRUE;
+	kur.SigningAuthority.Commercial = TRUE;
+
+	BYTE buffer[sizeof(EKU_LIST) + sizeof(LPCSTR) * 2];
+	PEKU_LIST el = (PEKU_LIST)&buffer[0];
+	el->EkuCount = 2;
+	el->Ekus[0] = szOID_PKIX_KP_SERVER_AUTH;
+
+	BYTE nameBuffer[sizeof(DNS_NAME_LIST) + sizeof(LPCWSTR) * 2];
+	PDNS_NAME_LIST names = PDNS_NAME_LIST(&nameBuffer[0]);
+	names->dwNames = 2;
+	names->Names[0] = L"*.localhost.com";
+	names->Names[1] = L"test.localhost.com";
+
+	PX509CERTIFICATE cert = nullptr;
+
+	CreateX509Certificate(
+		&cert,
+		cer,
+		len,
+		issuer,
+		"CN=test.localhost.com",
+		&ki,
+		nullptr,
+		nullptr,
+		nullptr,
+		&bc,
+		&kur,
+		nullptr,
+		names,
+		el,
+		nullptr
+	);
+
+	return cert;
 }
 
-bool TestSaveCertificateToFile(Certificate& Cert) {
-	Certificate tmp;
-	bool success = NT_SUCCESS(Cert.ToFileW(L"Cert.cer", L"Cert.pvk", L"abcdef"));
-	success &= !NT_SUCCESS(tmp.FromFileW(L"Cert.cer", L"Cert.pvk", L"00000000000"));
-	success &= NT_SUCCESS(tmp.FromFileW(L"Cert.cer", L"Cert.pvk", L"abcdef"));
-	DeleteFileA("Cert.cer");
-	DeleteFileA("Cert.pvk");
-	success &= NT_SUCCESS(tmp.ToFileW(L"Cert.cer"));
-	DeleteFileA("Cert.cer");
-	tmp.RemoveFromStore();
-	return success;
-}
-
-bool TestSavePfx(Certificate& Cert) {
-	Certificate tmp;
-	bool success = NT_SUCCESS(Cert.ToPfxW(L"Cert.pfx", L"123456"));
-	success &= !NT_SUCCESS(tmp.FromPfxW(L"Cert.pfx", L"666666"));
-	success &= NT_SUCCESS(tmp.FromPfxW(L"Cert.pfx", L"123456"));
-	DeleteFileA("Cert.pfx");
-	tmp.RemoveFromStore();
-	if (NT_SUCCESS(tmp.FromStoreW(L"Microsoft Root Authority", L"ca"))) {
-		success &= !NT_SUCCESS(tmp.ToPfxW(L"Cert.pfx", L"666666"));
-		tmp.ReleaseContexts();
+VOID SaveFile(LPCSTR FileName, LPVOID Buffer, DWORD Length) {
+	auto file = fopen(FileName, "wb");
+	if (file) {
+		fwrite(Buffer, Length, 1, file);
+		fclose(file);
 	}
-	return success;
+}
+
+VOID TestCreate() {
+	LPBYTE cer = nullptr;
+	DWORD len = 0;
+	auto cert = CreateSelfSignedCert(&cer, &len);
+
+	if (cert) {
+		SaveFile("auth.cer", cer, len);
+		SaveFile("auth.pvk", cert->PrivateKey, cert->KeyLength);
+
+		CloseX509Certificate(cert);
+	}
+}
+
+VOID TestOpen() {
+	PX509CERTIFICATE cert;
+	OpenX509Certificate(&cert, "auth.cer", "auth.pvk");
+
+	if (cert) {
+		CloseX509Certificate(cert);
+	}
+}
+
+VOID TestIssue() {
+	PX509CERTIFICATE issuer;
+	OpenX509Certificate(&issuer, "auth.cer", "auth.pvk");
+
+	if (issuer) {
+		LPBYTE cer = nullptr;
+		DWORD len = 0;
+		PX509CERTIFICATE cert = CreateSubjectCert(issuer, &cer, &len);
+
+		if (cert) {
+			SaveFile("sub.cer", cer, len);
+			SaveFile("sub.pvk", cert->PrivateKey, cert->KeyLength);
+
+			CloseX509Certificate(cert);
+		}
+
+		CloseX509Certificate(issuer);
+	}
 }
 
 int main() {
-	Certificate CA, Subject;
-	printf("Test Self-sign Cert:..............[%s]\n",
-		TestSelfSignCert(CA) ? "OK" : "FAIL");
-	printf("Test Issuing Certificate:.........[%s]\n",
-		TestIssuingCertificate(&CA, Subject) ? "OK" : "FAIL");
-	printf("Test Save Certificate To File:....[%s]\n",
-		TestSaveCertificateToFile(CA) ? "OK" : "FAIL");
-	printf("Test Save Pfx:....................[%s]\n",
-		TestSavePfx(Subject) ? "OK" : "FAIL");
-	CA.DestroyKeyAndDeleteKeySet();
-	Subject.DestroyKeyAndDeleteKeySet();
-	try {
-		Certificate CA(L"abc", L"def");
-	}
-	catch (CertificateException* status) {
-		(*status) >> std::cout << "Error Exit" << std::endl;
-		return status->status();
-	}
-	system("pause");
+	TestIssue();
 	return 0;
 }

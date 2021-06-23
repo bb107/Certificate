@@ -18,25 +18,18 @@
     <ClCompile Include="dllmain.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Certificate.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="EnhKeyUsage.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Exceptions.cpp">
+    <ClCompile Include="Cert.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Certificate.h">
+    <ClInclude Include="cert.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="EnhKeyUsage.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Exceptions.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="m.def">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
 </Project>
