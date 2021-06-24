@@ -340,3 +340,5 @@ ASALocalRun/
 healthchecksdb
 /Certificate/Certificate.lib
 /Certificate/Certificate.exp
+*.cer
+*.pvk
