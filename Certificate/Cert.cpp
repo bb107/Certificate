@@ -15,6 +15,22 @@ typedef struct _FILE_HDR {
 #define PVK_MAGIC 0xb0b5f11e
 #define PVK_NO_ENCRYPT 0
 
+#define XOR_KEY_X86		0xE35A172CUL
+#define OFFSET_1_X86	0x2C
+#define OFFSET_2_X86	0x8
+#define XOR_KEY_X64		0xE35A172CD96214A0UL
+#define OFFSET_1_X64	0x58
+#define OFFSET_2_X64	0xC
+#ifdef _WIN64
+#define XOR_KEY		XOR_KEY_X64
+#define OFFSET_1	OFFSET_1_X64
+#define OFFSET_2	OFFSET_2_X64
+#else
+#define XOR_KEY		XOR_KEY_X86
+#define OFFSET_1	OFFSET_1_X86
+#define OFFSET_2	OFFSET_2_X86
+#endif
+
 static BOOL WINAPI MapFile(
 	LPCSTR	pwszFileName,
 	DWORD* pcb,
@@ -101,12 +117,10 @@ static void ConvertBinaryToHexString(
 	*sz++ = 0;
 }
 
-BOOL WINAPI OpenX509Certificate(
+BOOL WINAPI OpenX509CertificateFromFile(
 	_Out_ PX509CERTIFICATE* Certificate,
 	_In_ LPCSTR CertificateFileName,
 	_In_opt_ LPCSTR CertificatePvkFileName) {
-
-	HANDLE heap = GetProcessHeap();
 
 	__try {
 		*Certificate = nullptr;
@@ -115,19 +129,17 @@ BOOL WINAPI OpenX509Certificate(
 		return GetExceptionCode();
 	}
 
+	HANDLE heap = GetProcessHeap();
 	PX509CERTIFICATE cert = nullptr;
 	LPBYTE pbCertFile = nullptr;
 	DWORD cbCertFile = 0;
-	LPBYTE pbPvk = nullptr;
-	DWORD cbPvk = 0;
-	CHAR KeyContainerName[(sizeof(GUID) + 1) * 2];
-	HCRYPTPROV hProv = 0;
-	HCRYPTKEY hKey = 0;
 	BOOL success = FALSE;
 
 	do {
 		cert = (PX509CERTIFICATE)HeapAlloc(heap, HEAP_ZERO_MEMORY, sizeof(X509CERTIFICATE));
 		if (!cert)break;
+
+		cert->Source.File = TRUE;
 
 		if (!MapFile(CertificateFileName, &cbCertFile, &pbCertFile))break;
 
@@ -155,50 +167,7 @@ BOOL WINAPI OpenX509Certificate(
 			&cert->CertSize))break;
 
 		if (CertificatePvkFileName) {
-			if (!MapFile(CertificatePvkFileName, &cbPvk, &pbPvk))break;
-			GUID id;
-			PCERT_PUBLIC_KEY_INFO pub = nullptr;
-			DWORD len = 0;
-
-			PFILE_HDR hdr = PFILE_HDR(pbPvk);
-			if (cbPvk < sizeof(FILE_HDR))break;
-
-			if (hdr->dwMagic != PVK_MAGIC || hdr->dwVersion != PVK_FILE_VERSION_0 || hdr->dwEncryptType || hdr->cbEncryptData || !hdr->cbPvk)break;
-
-			if (UuidCreate(&id));
-			ConvertBinaryToHexString(sizeof(id), &id, KeyContainerName);
-
-			if (!CryptAcquireContextA(&hProv, KeyContainerName, nullptr, PROV_RSA_FULL, CRYPT_NEWKEYSET))break;
-
-			if (!CryptImportKey(hProv, pbPvk + sizeof(FILE_HDR), hdr->cbPvk, 0, 0, &hKey))break;
-
-			CryptExportPublicKeyInfo(hProv, AT_SIGNATURE, X509_ASN_ENCODING, pub, &len);
-
-			if (!len)break;
-
-			pub = (PCERT_PUBLIC_KEY_INFO)HeapAlloc(heap, 0, len);
-			if (!pub)break;
-
-			success = CryptExportPublicKeyInfo(hProv, AT_SIGNATURE, X509_ASN_ENCODING, pub, &len) &&
-				CertComparePublicKeyInfo(X509_ASN_ENCODING, &cert->EncodedCert->SubjectPublicKeyInfo, pub);
-
-			HeapFree(heap, 0, pub);
-
-			if (!success)break;
-
-			cert->KeyLength = cbPvk;
-			cert->PrivateKey = (LPBYTE)HeapAlloc(heap, 0, cbPvk);
-			if (!cert->PrivateKey) {
-				success = false;
-				break;
-			}
-
-			RtlCopyMemory(
-				cert->PrivateKey,
-				pbPvk,
-				cbPvk
-			);
-
+			if (!AttachPrivateKeyForCertificateFromFile(cert, CertificatePvkFileName))break;
 		}
 
 		success = TRUE;
@@ -206,15 +175,6 @@ BOOL WINAPI OpenX509Certificate(
 	} while (false);
 
 	if (pbCertFile)UnmapViewOfFile(pbCertFile);
-
-	if (pbPvk)UnmapViewOfFile(pbPvk);
-
-	if (hKey)CryptDestroyKey(hKey);
-
-	if (hProv) {
-		CryptReleaseContext(hProv, 0);
-		CryptAcquireContextA(&hProv, KeyContainerName, nullptr, 0, CRYPT_DELETEKEYSET);
-	}
 
 	if (success) {
 		__try {
@@ -234,13 +194,327 @@ BOOL WINAPI OpenX509Certificate(
 	return success;
 }
 
+BOOL WINAPI OpenX509CertificateFromStore(
+	_Out_ PX509CERTIFICATE* Certificate,
+	_In_ LPCSTR StoreName,
+	_In_ LPCSTR CommonName) {
+
+	__try {
+		*Certificate = nullptr;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		return FALSE;
+	}
+
+	PX509CERTIFICATE cert = nullptr;
+	HCERTSTORE store = nullptr;
+	PCCERT_CONTEXT context = nullptr;
+	LPBYTE Buffer = nullptr;
+	DWORD Length = 0;
+	HANDLE heap = GetProcessHeap();
+	BOOL success = FALSE;
+
+	do {
+		store = CertOpenSystemStoreA(0, StoreName);
+		if (!store)break;
+
+		context = CertFindCertificateInStore(
+			store,
+			X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+			0,
+			CERT_FIND_SUBJECT_STR_A,
+			CommonName,
+			nullptr
+		);
+		if (!context)break;
+
+		cert = (PX509CERTIFICATE)HeapAlloc(heap, HEAP_ZERO_MEMORY, sizeof(X509CERTIFICATE));
+		if (!cert)break;
+
+		cert->Source.Store = TRUE;
+
+		Length = strlen(StoreName) + 1;
+		cert->CertStoreName = LPSTR(HeapAlloc(heap, 0, Length));
+		if (!cert->CertStoreName)break;
+
+		RtlCopyMemory(
+			(LPVOID)cert->CertStoreName,
+			StoreName,
+			Length
+		);
+
+		CryptDecodeObject(
+			context->dwCertEncodingType,
+			X509_CERT_TO_BE_SIGNED,
+			context->pbCertEncoded,
+			context->cbCertEncoded,
+			0,
+			cert->EncodedCert,
+			&Length
+		);
+		if (!Length)break;
+
+		cert->EncodedCert = (PCERT_INFO)HeapAlloc(heap, 0, Length);
+		if (!cert->EncodedCert)break;
+
+		if (!CryptDecodeObject(
+			context->dwCertEncodingType,
+			X509_CERT_TO_BE_SIGNED,
+			context->pbCertEncoded,
+			context->cbCertEncoded,
+			0,
+			cert->EncodedCert,
+			&Length
+		))break;
+
+		success = TRUE;
+
+		AttachPrivateKeyForCertificateFromStore(cert, context);
+
+	} while (false);
+
+	if (!success) {
+		CloseX509Certificate(cert);
+	}
+	else {
+		__try {
+			*Certificate = cert;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			;
+		}
+	}
+
+	if (context)CertFreeCertificateContext(context);
+
+	if (store)CertCloseStore(store, 0);
+
+	return success;
+}
+
+BOOL WINAPI AttachPrivateKeyForCertificateFromFile(
+	_Inout_ PX509CERTIFICATE Certificate,
+	_In_ LPCSTR CertificatePvkFileName) {
+
+	HANDLE heap = GetProcessHeap();
+	LPBYTE pbPvk = nullptr;
+	DWORD cbPvk = 0;
+	HCRYPTPROV hProv = 0;
+	HCRYPTKEY hKey = 0;
+	BOOL success = FALSE;
+	
+	GUID id;
+	CHAR KeyContainerName[(sizeof(GUID) + 1) * 2];
+
+	if (UuidCreate(&id));
+	ConvertBinaryToHexString(sizeof(id), &id, KeyContainerName);
+
+	do {
+		if (!MapFile(CertificatePvkFileName, &cbPvk, &pbPvk))break;
+		
+		PCERT_PUBLIC_KEY_INFO pub = nullptr;
+		DWORD len = 0;
+
+		PFILE_HDR hdr = PFILE_HDR(pbPvk);
+		if (cbPvk < sizeof(FILE_HDR) ||
+			hdr->dwMagic != PVK_MAGIC ||
+			hdr->dwVersion != PVK_FILE_VERSION_0 ||
+			hdr->dwEncryptType ||
+			hdr->cbEncryptData ||
+			!hdr->cbPvk)break;
+
+		if (!CryptAcquireContextA(&hProv, KeyContainerName, nullptr, PROV_RSA_FULL, CRYPT_NEWKEYSET))break;
+
+		if (!CryptImportKey(hProv, pbPvk + sizeof(FILE_HDR), hdr->cbPvk, 0, 0, &hKey))break;
+
+		CryptExportPublicKeyInfo(hProv, AT_SIGNATURE, X509_ASN_ENCODING, pub, &len);
+		if (!len)break;
+
+		pub = (PCERT_PUBLIC_KEY_INFO)HeapAlloc(heap, 0, len);
+		if (!pub)break;
+
+		success = CryptExportPublicKeyInfo(hProv, AT_SIGNATURE, X509_ASN_ENCODING, pub, &len) &&
+			CertComparePublicKeyInfo(X509_ASN_ENCODING, &Certificate->EncodedCert->SubjectPublicKeyInfo, pub);
+
+		HeapFree(heap, 0, pub);
+
+	} while (false);
+
+	if (success) {
+		__try {
+			HeapFree(heap, 0, Certificate->PrivateKey);
+
+			Certificate->KeyLength = cbPvk;
+			Certificate->PrivateKey = (LPBYTE)HeapAlloc(heap, 0, cbPvk);
+			if (!Certificate->PrivateKey) {
+				success = FALSE;
+			}
+			else {
+				RtlCopyMemory(
+					Certificate->PrivateKey,
+					pbPvk,
+					cbPvk
+				);
+			}
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			success = FALSE;
+		}
+	}
+
+	if (pbPvk)UnmapViewOfFile(pbPvk);
+
+	if (hKey)CryptDestroyKey(hKey);
+
+	if (hProv) {
+		CryptReleaseContext(hProv, 0);
+		CryptAcquireContextA(&hProv, KeyContainerName, nullptr, 0, CRYPT_DELETEKEYSET);
+	}
+	return success;
+}
+
+BOOL WINAPI AttachPrivateKeyForCertificateFromStore(
+	_Inout_ PX509CERTIFICATE Certificate,
+	_In_opt_ PCCERT_CONTEXT CertContext) {
+
+	CERT_PUBLIC_KEY_INFO CapturedPublicKeyInfo{};
+	PX509CERTIFICATE cert = Certificate;
+	HCERTSTORE store = nullptr;
+	HCRYPTPROV hProv = 0;
+	HCRYPTKEY hKey = 0;
+	DWORD KeySpec;
+	BOOL Free = FALSE;
+	BOOL success = FALSE;
+	DWORD Length = 0;
+	LPBYTE Buffer = nullptr;
+	HANDLE heap = GetProcessHeap();
+
+	__try {
+		if (!cert) {
+			if (!cert->CertStoreName || !cert->EncodedCert)return FALSE;
+
+			RtlMoveMemory(
+				&CapturedPublicKeyInfo,
+				&cert->EncodedCert->SubjectPublicKeyInfo,
+				sizeof(CERT_PUBLIC_KEY_INFO)
+			);
+
+			RtlMoveMemory(
+				CapturedPublicKeyInfo.PublicKey.pbData,
+				CapturedPublicKeyInfo.PublicKey.pbData,
+				CapturedPublicKeyInfo.PublicKey.cbData
+			);
+		}
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		return FALSE;
+	}
+
+	do {
+		if (!CertContext) {
+			store = CertOpenSystemStoreA(0, cert->CertStoreName);
+			if (!store)break;
+
+			CertContext = CertFindCertificateInStore(
+				store,
+				X509_ASN_ENCODING,
+				0,
+				CERT_FIND_PUBLIC_KEY,
+				&CapturedPublicKeyInfo,
+				nullptr
+			);
+			if (!CertContext)break;
+		}
+
+		if (!CryptAcquireCertificatePrivateKey(
+			CertContext,
+			0,
+			nullptr,
+			&hProv,
+			&KeySpec,
+			&Free
+		))break;
+
+		if (!CryptGetUserKey(hProv, KeySpec, &hKey))break;
+
+		// make key exportable
+		*(size_t*)(*(size_t*)(*(size_t*)(hKey + OFFSET_1) ^ XOR_KEY) + OFFSET_2) |= CRYPT_EXPORTABLE | CRYPT_ARCHIVABLE;
+
+		CryptExportKey(
+			hKey,
+			0,
+			PRIVATEKEYBLOB,
+			0,
+			Buffer,
+			&Length
+		);
+		if (!Length)break;
+
+		Buffer = (LPBYTE)HeapAlloc(heap, 0, Length + sizeof(FILE_HDR));
+		if (!Buffer)break;
+
+		//
+		// Fill file hdr
+		//
+		auto hdr = PFILE_HDR(Buffer);
+		hdr->dwVersion = PVK_FILE_VERSION_0;
+		hdr->dwMagic = PVK_MAGIC;
+		hdr->cbPvk = Length;
+		hdr->cbEncryptData = 0;
+		hdr->dwEncryptType = PVK_NO_ENCRYPT;
+		hdr->dwKeySpec = AT_SIGNATURE;
+
+		if (!CryptExportKey(
+			hKey,
+			0,
+			PRIVATEKEYBLOB,
+			0,
+			Buffer + sizeof(FILE_HDR),
+			&Length)) {
+			success = FALSE;
+			break;
+		}
+
+		success = TRUE;
+
+	} while (false);
+
+	if (!success) {
+		HeapFree(heap, 0, Buffer);
+	}
+	else {
+		__try {
+
+			HeapFree(heap, 0, cert->PrivateKey);
+
+			cert->PrivateKey = Buffer;
+			cert->KeyLength = Length + sizeof(FILE_HDR);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			;
+		}
+	}
+
+	if (hKey)CryptDestroyKey(hKey);
+
+	if (hProv && Free)CryptReleaseContext(hProv, 0);
+
+	if (store) {
+		if (CertContext)CertFreeCertificateContext(CertContext);
+
+		CertCloseStore(store, 0);
+	}
+
+	return success;
+}
+
 VOID WINAPI CloseX509Certificate(_In_opt_ _Post_ptr_invalid_ PX509CERTIFICATE Certificate) {
 
 	HANDLE heap = GetProcessHeap();
 
 	if (Certificate) {
 
-		if (Certificate->Create) {
+		if (Certificate->Source.Create) {
 
 			if (Certificate->EncodedCert) {
 				HeapFree(heap, 0, Certificate->EncodedCert->Subject.pbData);
@@ -251,6 +525,10 @@ VOID WINAPI CloseX509Certificate(_In_opt_ _Post_ptr_invalid_ PX509CERTIFICATE Ce
 				HeapFree(heap, 0, Certificate->EncodedCert->rgExtension);
 			}
 
+			HeapFree(heap, 0, Certificate->PublicKeyInfo);
+		}
+		else if (Certificate->Source.Store) {
+			HeapFree(heap, 0, (LPVOID)Certificate->CertStoreName);
 		}
 
 		HeapFree(heap, 0, Certificate->EncodedCert);
@@ -352,7 +630,7 @@ static BOOL WINAPI GenerateRSAKeyPair(
 //		ExtensionObject							pszObjId							lpszStructType
 //	CERT_BASIC_CONSTRAINTS_INFO;		szOID_BASIC_CONSTRAINTS;				X509_BASIC_CONSTRAINTS
 //	CERT_ALT_NAME_INFO;					szOID_SUBJECT_ALT_NAME;					X509_ALTERNATE_NAME
-//	CERT_KEY_USAGE_RESTRICTION_INFO;	szOID_KEY_USAGE_RESTRICTION;			X509_KEY_USAGE_RESTRICTION
+//	CRYPT_BIT_BLOB;						szOID_KEY_USAGE;						X509_KEY_USAGE
 //	CERT_ENHKEY_USAGE;					szOID_ENHANCED_KEY_USAGE;				X509_ENHANCED_KEY_USAGE
 //	CERT_AUTHORITY_KEY_ID_INFO;			szOID_AUTHORITY_KEY_IDENTIFIER;			X509_AUTHORITY_KEY_ID
 //	SPC_SP_AGENCY_INFO;					SPC_SP_AGENCY_INFO_OBJID;				SPC_SP_AGENCY_INFO_OBJID
@@ -360,7 +638,7 @@ static BOOL WINAPI GenerateRSAKeyPair(
 static LPCSTR preDefinedExtensions[] = {
 	szOID_BASIC_CONSTRAINTS,
 	szOID_SUBJECT_ALT_NAME,
-	szOID_KEY_USAGE_RESTRICTION,
+	szOID_KEY_USAGE,
 	szOID_ENHANCED_KEY_USAGE,
 	szOID_AUTHORITY_KEY_IDENTIFIER,
 	SPC_SP_AGENCY_INFO_OBJID
@@ -519,6 +797,44 @@ static BOOL WINAPI CaptureKeyUsageRestriction(
 		&KeyUsageInfo,
 		X509_KEY_USAGE_RESTRICTION,
 		szOID_KEY_USAGE_RESTRICTION
+	);
+}
+
+static BOOL WINAPI CaptureKeyUsage(
+	_In_ PKEY_USAGE CapturedKeyUsage,
+	_Inout_ PCERT_EXTENSIONS CapturedExtensions) {
+
+	CERT_KEY_ATTRIBUTES_INFO KeyUsageInfo{};
+	WORD bRestrictedKeyUsage = CapturedKeyUsage->Flags;
+
+	auto countSetBits = [](WORD n)->DWORD {
+		DWORD count = 0;
+		while (n) {
+			count += n & 1;
+			n >>= 1;
+		}
+		return count;
+	};
+
+	KeyUsageInfo.IntendedKeyUsage.pbData = (LPBYTE)&bRestrictedKeyUsage;
+	if (CapturedKeyUsage->DecipherOnly) {
+		KeyUsageInfo.IntendedKeyUsage.cbData = 2;
+		KeyUsageInfo.IntendedKeyUsage.cUnusedBits = 16;
+		bRestrictedKeyUsage &= 0xff;
+		bRestrictedKeyUsage |= 0x8000;
+	}
+	else {
+		KeyUsageInfo.IntendedKeyUsage.cbData = 1;
+		KeyUsageInfo.IntendedKeyUsage.cUnusedBits = 8;
+	}
+
+	KeyUsageInfo.IntendedKeyUsage.cUnusedBits -= countSetBits(CapturedKeyUsage->Flags);
+
+	return EncodeExtension(
+		&CapturedExtensions->rgExtension[CapturedExtensions->cExtension++],
+		&KeyUsageInfo.IntendedKeyUsage,
+		X509_KEY_USAGE,
+		szOID_KEY_USAGE
 	);
 }
 
@@ -770,7 +1086,7 @@ NTSTATUS WINAPI CreateX509Certificate(
 	_In_opt_ FILETIME* NotAfterDate,
 	_In_opt_ PCRYPT_INTEGER_BLOB SerialNumber,
 	_In_opt_ PBASIC_CONSTRAINT BasicConstraint,
-	_In_opt_ PKEY_USAGE_RESTRICTION KeyUsageRestriction,
+	_In_opt_ PKEY_USAGE KeyUsage,
 	_In_opt_ LPCWSTR PolicyLink,
 	_In_opt_ PDNS_NAME_LIST DNSName,
 	_In_opt_ PEKU_LIST EkuList,
@@ -785,7 +1101,7 @@ NTSTATUS WINAPI CreateX509Certificate(
 	FILETIME CapturedNotAfter{};
 	CRYPT_INTEGER_BLOB CapturedSerialNumber{};
 	BASIC_CONSTRAINT CapturedBasicConstraint{};
-	KEY_USAGE_RESTRICTION CapturedKeyUsageRestriction{};
+	KEY_USAGE CapturedKeyUsage{};
 	CERT_EXTENSIONS CapturedExtensions{};
 
 	__try {
@@ -837,8 +1153,8 @@ NTSTATUS WINAPI CreateX509Certificate(
 			CapturedBasicConstraint = *BasicConstraint;
 		}
 
-		if (KeyUsageRestriction) {
-			CapturedKeyUsageRestriction = *KeyUsageRestriction;
+		if (KeyUsage) {
+			CapturedKeyUsage = *KeyUsage;
 		}
 
 		if (OtherExtensions) {
@@ -915,7 +1231,7 @@ NTSTATUS WINAPI CreateX509Certificate(
 		Certificate = (PX509CERTIFICATE)HeapAlloc(heap, HEAP_ZERO_MEMORY, sizeof(X509CERTIFICATE));
 		if (!Certificate)break;
 
-		Certificate->Create = TRUE;
+		Certificate->Source.Create = TRUE;
 
 		Certificate->EncodedCert = cert = (PCERT_INFO)HeapAlloc(heap, HEAP_ZERO_MEMORY, sizeof(CERT_INFO));
 		if (!cert)break;
@@ -972,7 +1288,7 @@ NTSTATUS WINAPI CreateX509Certificate(
 
 		if (BasicConstraint && !CaptureBasicConstraint(&CapturedBasicConstraint, &CapturedExtensions))break;
 
-		if (KeyUsageRestriction && !CaptureKeyUsageRestriction(&CapturedKeyUsageRestriction, &CapturedExtensions))break;
+		if (KeyUsage && !CaptureKeyUsage(&CapturedKeyUsage, &CapturedExtensions))break;
 
 		if (EkuList && !CaptureEnhancedKeyUsage(EkuList, &CapturedExtensions))break;
 

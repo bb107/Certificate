@@ -11,11 +11,10 @@ PX509CERTIFICATE CreateSelfSignedCert(LPBYTE* cer, LPDWORD len) {
 	bc.Authority = TRUE;
 	bc.MaxPathHeight = -1;
 
-	KEY_USAGE_RESTRICTION kur{};
-	kur.KeyUsage.DigitalSignature = TRUE;
-	kur.KeyUsage.KeyAgreement = TRUE;
-	kur.KeyUsage.KeyCertSign = TRUE;
-	kur.SigningAuthority.Commercial = TRUE;
+	KEY_USAGE kur{};
+	kur.DigitalSignature = TRUE;
+	kur.KeyAgreement = TRUE;
+	kur.KeyCertSign = TRUE;
 
 	BYTE buffer[sizeof(EKU_LIST) + sizeof(LPCSTR) * 2];
 	PEKU_LIST el = (PEKU_LIST)&buffer[0];
@@ -56,13 +55,12 @@ PX509CERTIFICATE CreateSubjectCert(PX509CERTIFICATE issuer, LPBYTE* cer, LPDWORD
 	bc.End = TRUE;
 	bc.MaxPathHeight = -1;
 
-	KEY_USAGE_RESTRICTION kur{};
-	kur.KeyUsage.DigitalSignature = TRUE;
-	kur.SigningAuthority.Commercial = TRUE;
+	KEY_USAGE kur{};
+	kur.DigitalSignature = TRUE;
 
 	BYTE buffer[sizeof(EKU_LIST) + sizeof(LPCSTR) * 2];
 	PEKU_LIST el = (PEKU_LIST)&buffer[0];
-	el->EkuCount = 2;
+	el->EkuCount = 1;
 	el->Ekus[0] = szOID_PKIX_KP_SERVER_AUTH;
 
 	BYTE nameBuffer[sizeof(DNS_NAME_LIST) + sizeof(LPCWSTR) * 2];
@@ -117,7 +115,7 @@ VOID TestCreate() {
 
 VOID TestOpen() {
 	PX509CERTIFICATE cert;
-	OpenX509Certificate(&cert, "auth.cer", "auth.pvk");
+	OpenX509CertificateFromFile(&cert, "auth.cer", "auth.pvk");
 
 	if (cert) {
 		CloseX509Certificate(cert);
@@ -126,7 +124,7 @@ VOID TestOpen() {
 
 VOID TestIssue() {
 	PX509CERTIFICATE issuer;
-	OpenX509Certificate(&issuer, "auth.cer", "auth.pvk");
+	OpenX509CertificateFromFile(&issuer, "auth.cer", "auth.pvk");
 
 	if (issuer) {
 		LPBYTE cer = nullptr;
@@ -144,7 +142,16 @@ VOID TestIssue() {
 	}
 }
 
+VOID TestStoreOpen() {
+	PX509CERTIFICATE cert;
+
+	OpenX509CertificateFromStore(&cert, "my", "test");
+	if (cert) {
+		CloseX509Certificate(cert);
+	}
+}
+
 int main() {
-	TestIssue();
+	TestStoreOpen();
 	return 0;
 }

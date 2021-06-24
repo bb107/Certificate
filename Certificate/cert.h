@@ -57,7 +57,7 @@ typedef union _KEY_USAGE {
 	};
 
 	WORD Flags;
-}KEY_USAGE;
+}KEY_USAGE, * PKEY_USAGE;
 
 typedef union _SIGNING_AUTHORITY {
 	struct {
@@ -90,23 +90,48 @@ typedef struct _X509CERTIFICATE {
 	DWORD CertSize;
 	PCERT_INFO EncodedCert;
 
-	PCERT_PUBLIC_KEY_INFO PublicKeyInfo;
+	union {
+		// Create frees
+		PCERT_PUBLIC_KEY_INFO PublicKeyInfo;
+
+		// Store frees
+		LPCSTR CertStoreName;
+	};
+
 
 	union {
 		struct {
 			DWORD Create : 1;
+			DWORD File : 1;
+			DWORD Store : 1;
 		};
 
 		DWORD Flags;
-	};
+	}Source;
 }X509CERTIFICATE, * PX509CERTIFICATE;
 
 
 
-BOOL WINAPI OpenX509Certificate(
+BOOL WINAPI OpenX509CertificateFromFile(
 	_Out_ PX509CERTIFICATE* Certificate,
 	_In_ LPCSTR CertificateFileName,
 	_In_opt_ LPCSTR CertificatePvkFileName
+);
+
+BOOL WINAPI OpenX509CertificateFromStore(
+	_Out_ PX509CERTIFICATE* Certificate,
+	_In_ LPCSTR StoreName,
+	_In_ LPCSTR CommonName
+);
+
+BOOL WINAPI AttachPrivateKeyForCertificateFromFile(
+	_Inout_ PX509CERTIFICATE Certificate,
+	_In_ LPCSTR CertificatePvkFileName
+);
+
+BOOL WINAPI AttachPrivateKeyForCertificateFromStore(
+	_Inout_ PX509CERTIFICATE Certificate,
+	_In_opt_ PCCERT_CONTEXT CertContext
 );
 
 VOID WINAPI CloseX509Certificate(
@@ -124,7 +149,7 @@ NTSTATUS WINAPI CreateX509Certificate(
 	_In_opt_ FILETIME* NotAfterDate,
 	_In_opt_ PCRYPT_INTEGER_BLOB SerialNumber,
 	_In_opt_ PBASIC_CONSTRAINT BasicConstraint,
-	_In_opt_ PKEY_USAGE_RESTRICTION KeyUsageRestriction,
+	_In_opt_ PKEY_USAGE KeyUsage,
 	_In_opt_ LPCWSTR PolicyLink,
 	_In_opt_ PDNS_NAME_LIST DNSName,
 	_In_opt_ PEKU_LIST EkuList,

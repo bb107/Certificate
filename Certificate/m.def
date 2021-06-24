@@ -2,6 +2,11 @@ LIBRARY Certificate
 
 EXPORTS
 
-OpenX509Certificate
+OpenX509CertificateFromFile
+OpenX509CertificateFromStore
+
+AttachPrivateKeyForCertificateFromFile
+AttachPrivateKeyForCertificateFromStore
+
 CloseX509Certificate
 CreateX509Certificate
