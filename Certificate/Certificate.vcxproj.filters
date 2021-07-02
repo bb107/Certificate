@@ -21,9 +21,24 @@
     <ClCompile Include="Cert.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="builder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="keys.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cert.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="builder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="stdafx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="keys.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

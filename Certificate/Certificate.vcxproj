@@ -167,11 +167,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="builder.cpp" />
     <ClCompile Include="Cert.cpp" />
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="keys.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="builder.h" />
     <ClInclude Include="cert.h" />
+    <ClInclude Include="keys.h" />
+    <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="m.def" />
